@@ -42,7 +42,7 @@ def handleLabels(l):
 	while i < count:
 		lab = labels[i]
 		if(lab in leadingLabels):
-			if(currentList):
+			if(currentListTitle):
 				newLabels.append(currentListTitle + ', '.join(currentList))
 				currentListTitle = None
 			if(i == count-1):
@@ -52,7 +52,7 @@ def handleLabels(l):
 			continue
 
 		if(lab == '_'):
-			if(currentList):
+			if(currentListTitle):
 				newLabels.append(currentListTitle + ', '.join(currentList))
 				currentListTitle = None
 			if(i == count-1):
@@ -69,7 +69,7 @@ def handleLabels(l):
 			continue
 
 		if(lab in listLabels):
-			if(currentList):
+			if(currentListTitle):
 				newLabels.append(currentListTitle + ', '.join(currentList))
 			currentListTitle = lab + ': '
 			currentList = list()
@@ -85,7 +85,7 @@ def handleLabels(l):
 		newLabels.append(lab)
 		i+=1
 
-	if(currentList):
+	if(currentListTitle):
 		newLabels.append(currentListTitle + ', '.join(currentList))
 
 	return newLabels
@@ -584,7 +584,7 @@ class WiktionaryParser():
 
 def example():
 	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/wordsonly.txt')
-	parser.setMaxPageCount(100)
+	parser.setMaxPageCount(10000)
 	parser.parse()
 
 example()
