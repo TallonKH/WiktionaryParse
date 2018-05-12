@@ -12,7 +12,7 @@ plrre = re.compile('{{(\w{2,3}-(?:noun|verb).*)}}')
 # matches default plural rule (append s to word)
 plrBase = re.compile('\w{2,3}-(?:noun|verb)')
 # levels of countability corresponding with indeces 0,1,2
-countableTypes = ['No', 'Yes', 'Sometimes']
+countableTypes = ['No', 'Yes', 'Sometimes', 'Unknown']
 partsOfSpeech = {'Adjective', 'Adverb', 'Ambiposition', 'Article', 'Circumposition', 'Classifier', 'Conjunction', 'Contraction', 'Counter', 'Determiner', 'Ideophone', 'Interjection', 'Noun', 'Numeral', 'Participle', 'Particle', 'Postposition', 'Preposition', 'Pronoun', 'Proper noun', 'Verb'}
 # split a string into tags {{a|b|c}}
 def tagify(s):
@@ -174,14 +174,11 @@ class WiktionaryParser():
 						if(hasContent):
 							# add word data to the compiled list
 							if(self.__wordsOnly):
-								print(pageCount, currentWord)
 								pages += currentWord + '\n'
-								pageCount += 1
-								continue
 							else:
 								pages[currentWord] = page
-								pageCount += 1
 
+							pageCount += 1
 						# reset some variables
 						hasContent = False
 						currentLang = None
@@ -353,6 +350,8 @@ class WiktionaryParser():
 									elif(rule == '-'): # non-countable or rarely countable
 										if(countable == 1):
 											countable = 2
+									elif(rule == '?'): # unknown plural form
+										countable = 3
 									else:
 										# do not change if countable = sometimes
 										if(countable == 0):
