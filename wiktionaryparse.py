@@ -13,6 +13,7 @@ plrre = re.compile('{{(\w{2,3}-(?:noun|verb).*)}}')
 plrBase = re.compile('\w{2,3}-(?:noun|verb)')
 # levels of countability corresponding with indeces 0,1,2
 countableTypes = ['No', 'Yes', 'Sometimes']
+partsOfSpeech = {'Adjective', 'Adverb', 'Ambiposition', 'Article', 'Circumposition', 'Classifier', 'Conjunction', 'Contraction', 'Counter', 'Determiner', 'Ideophone', 'Interjection', 'Noun', 'Numeral', 'Participle', 'Particle', 'Postposition', 'Preposition', 'Pronoun', 'Proper noun', 'Verb'}
 # split a string into tags {{a|b|c}}
 def tagify(s):
 	return s[2:-2].split('|')
@@ -26,36 +27,39 @@ class WiktionaryParser():
 		self.__targetLangs = {'English'}
 		self.__oneLang = len(self.__targetLangs) == 1
 		# content in these sections should be saved
-		self.__targetSections = {'Noun', 'Verb', 'Adjective'}
+		self.__targetSections = set(partsOfSpeech)
+		self.__oneSect = len(self.__targetSections) == 1
 		# if info about plurals should be tracked
 		self.__trackPlurals = True
 		# if the parser is currently running
 		self.__running = False
 		# if the parser should track info about how much data it has parsed
 		self.__trackSelf = True
+		# if parser should make a list of words and nothing else
+		self.__wordsOnly = False
 
-	def setInPath(path):
+	def setInPath(self, path):
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
 		self.__inpath = path
 		return True
 
-	def setOutPath(path):
+	def setOutPath(self, path):
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
 		self.__outpath = path
 		return True
 
-	def setMaxPageCount(count):
+	def setMaxPageCount(self, count):
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
 		self.__maxPageCount = count
 		return True
 
-	def setTargetLanguages(*langs):
+	def setTargetLanguages(self, *langs):
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
@@ -63,15 +67,36 @@ class WiktionaryParser():
 		self.__oneLang = len(langs) == 1
 		return True
 
-	def setTrackPlurals(track):
+	def getTargetLanguages(self):
+		return set(self.__targetLangs)
+
+	def setTargetSections(self, *sects):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__targetLangs = set(sects)
+		self.__oneSect = len(sects) == 1
+		return True
+
+	def getTargetLanguages(self):
+		return set(self.__targetLangs)
+
+	def setTrackPlurals(self, track):
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
 		self.__trackPlurals = track
 		return True
 
+	def setWordsOnly(self, w):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__wordsOnly = w
+		return True
+
 	# stops the parser before its next iteration
-	def forceStop():
+	def forceStop(self):
 		if(self.__running):
 			self.__running = False
 			return True
@@ -86,10 +111,17 @@ class WiktionaryParser():
 			return None
 		self.__running = True
 
-		inf = open(self.__inpath, 'r')
+		# the XML file being read
+		inf = None
+		try:
+			inf = open(self.__inpath, 'r')
+		except:
+			print('Failed to open input file. Quitting...')
+			return None
 
 		pageCount = 0	# number of saved pages
-		pages = dict()	# holds all pages - one page per word
+		# holds all pages - one page per word
+		pages = '' if self.__wordsOnly else dict()
 		page = dict()	# holds the current page being parsed/created
 
 		hasContent = False	# if current page has any content that should be saved
@@ -118,6 +150,7 @@ class WiktionaryParser():
 			if(not self.__running):
 				print('Stopping forcefully...')
 				break
+
 			line = inf.readline()
 
 			if(self.__trackSelf):
@@ -140,8 +173,14 @@ class WiktionaryParser():
 						# only save pages/words that have desired information
 						if(hasContent):
 							# add word data to the compiled list
-							pages[currentWord] = page
-							pageCount += 1
+							if(self.__wordsOnly):
+								print(pageCount, currentWord)
+								pages += currentWord + '\n'
+								pageCount += 1
+								continue
+							else:
+								pages[currentWord] = page
+								pageCount += 1
 
 						# reset some variables
 						hasContent = False
@@ -174,7 +213,9 @@ class WiktionaryParser():
 							continue
 
 						# set up the next word's page
-						page = dict()
+						if(not self.__wordsOnly):
+							page = dict()
+
 						continue
 
 					# sometimes, important content leaks onto the back of this xml line;
@@ -209,6 +250,8 @@ class WiktionaryParser():
 						# check if this language is desired
 						if((not self.__targetLangs) or (lang in self.__targetLangs)):
 							currentLangName = lang
+							if(self.__wordsOnly):
+								continue
 							# if there's only one language, skip creating a -
 							# lang section and enter info right into the page dict.
 							# This is a really sketchy way to do this, but it's efficient and it works.
@@ -220,8 +263,10 @@ class WiktionaryParser():
 								# add the language section to the word's page
 								page[lang] = currentLang
 						else:
-							currentLang = None
 							currentLangName = None
+							if(self.__wordsOnly):
+								continue
+							currentLang = None
 							# if the language isn't desired, skip it
 							skipLang = True
 					# if not in a lang, don't bother checking for sections
@@ -235,19 +280,31 @@ class WiktionaryParser():
 					# check if this section is desired
 					if((not self.__targetSections) or (section in self.__targetSections)):
 						currentSectionName = section
-						# create a dict for this section's contents
-						currentSection = dict()
-						# add the section to the language dict
-						currentLang[section] = currentSection
+						if(self.__wordsOnly):
+							hasContent = True
+							skipPage = True
+							continue
+						if(self.__oneSect):
+							currentSect = currentLang
+						else:
+							# create a dict for this section's contents
+							currentSection = dict()
+							# add the section to the language dict
+							currentLang[section] = currentSection
 						# flag the page as having desired content
 						hasContent = True
 					else:
-						currentSection = None
 						currentSectionName = None
+						if(self.__wordsOnly):
+							continue
+						currentSection = None
 						# if the section isn't desired, skip it
 						skipSection = True
 					# reset the flag for whether or not plural rules have been found
 					foundPlurals = False
+					continue
+
+				if(self.__wordsOnly):
 					continue
 
 				# if currently in a specific section...
@@ -312,25 +369,31 @@ class WiktionaryParser():
 					pass
 				elif(currentSectionName == 'Adjective'):
 					pass
+
 		inf.close()
 
-		js = json.dumps(pages)
-		outf = open(self.__outpath, 'w')
-		outf.write(js)
-		outf.close()
+		out = pages[:-1] if self.__wordsOnly else json.dumps(pages)
 
+		try:
+			outf = open(self.__outpath, 'w')
+			outf.write(out)
+			outf.close()
+		except:
+			print('Failed to write to file.')
+
+		# end stats
 		print('Finished with ' + str(len(pages)) + ' words.')
 		if(self.__trackSelf):
 			print('Parsed ' + str(linesRead) + ' pages.')
-			print('Turned ' + str(bytesRead) + ' bytes into ' + str(len(js.decode('utf8'))) + '.')
+			print('Turned ' + str(bytesRead) + ' bytes into ' + str(len(out.decode('utf8'))) + '.')
 
-		return js
+		return out
 
 #TODO maybe check the API to update existing words in the JSON
 
 def example():
 	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/parsed.json')
-	parser.maxPageCount = 100
+	parser.setMaxPageCount(1000)
 	parser.parse()
 
 example()
