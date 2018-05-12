@@ -221,7 +221,7 @@ class WiktionaryParser():
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
-		self.__targetLangs = set(sects)
+		self.__targetSections = set(sects)
 		self.__oneSect = len(sects) == 1
 		return True
 
@@ -583,7 +583,7 @@ class WiktionaryParser():
 		return out
 
 def example():
-	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/parsed.json')
+	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/wordsonly.txt')
 	parser.setMaxPageCount(100)
 	parser.parse()
 
