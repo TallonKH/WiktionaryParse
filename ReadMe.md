@@ -25,17 +25,26 @@ Far from finished, but functional to the degree specified below.
 
 ## How to use
 
+1. Download one of wiktionary's backup files. The latest ones are [here](https://dumps.wikimedia.org/enwiktionary/latest/). The one you want is called ```enwiktionary-latest-pages-articles.xml.bz2```. **WARNING:** **This is a big file.** Uncompress the bz2 and put it wherever you want. Keep in mind this makes the already-big file *significantly bigger*. 
+
+2. Download the wiktionaryparse.py file. Feel free to edit the ```example()``` method. If you don't want to, you'll have to import wiktionaryparse.py into your own file. 
+3. Run the .py file in a console however you want. I recommend running it in a console to make sure no errors happen.
+4. Once your output file is done, feel free to delete the xml.
+
+
 ```Python3
 def example():
-	# this creates a parser object
-	parser = WiktionaryParser('/input/file.XML', '/output/file.JSON')
+	# this creates a parser object, with the input and output file paths respectively
+	parser = WiktionaryParser('/input/file.xml', '/output/file.json')
 
 	# this writes to the output file (and returns the json as a string)
 	parser.parse()
 ```
 
+Changing settings:
+
 ```Python3
-def example2():
+def example():
 	parser = WiktionaryParser('/input/file.XML', '/output/file.JSON')
 
 	# this specify the maximum number of words/pages to parse - (default = 100)
