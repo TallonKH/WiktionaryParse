@@ -6,17 +6,160 @@ import json
 # matches to Language titles
 title2PT = re.compile('==([^=]+)==')
 # matches to section/subsection titles
-title34PT = re.compile('====?([^=]+)====?')
-# matches plural rule tags for any language - groups the inner contents
-plrre = re.compile('{{(\w{2,3}-(?:noun|verb).*)}}')
-# matches default plural rule (append s to word)
-plrBase = re.compile('\w{2,3}-(?:noun|verb)')
+title3pPT = re.compile('={3,}([^=]+)={3,}?')
+# matches plural rule labels for any language - groups the inner contents
+plrre = re.compile('{{([a-z]{2,3}-(?:noun|verb).*)}}')
+# matches definitions - extracts first set of labels and definition
+defre1 = re.compile('#+? (?:{{lb\|[a-z]{2,3}\|(?P<labels>.+?)}} ?)?(?P<def>.+)')
+# matches definitions - extracts pre/post labels and definition
+defre2 = re.compile('^(?:{{(?P<prelabels>.+?)}} ?)?(?P<def>[^{]*)(?:{{(?P<postlabels>.+)}})?')
 # levels of countability corresponding with indeces 0,1,2
 countableTypes = ['No', 'Yes', 'Sometimes', 'Unknown']
-partsOfSpeech = {'Adjective', 'Adverb', 'Ambiposition', 'Article', 'Circumposition', 'Classifier', 'Conjunction', 'Contraction', 'Counter', 'Determiner', 'Ideophone', 'Interjection', 'Noun', 'Numeral', 'Participle', 'Particle', 'Postposition', 'Preposition', 'Pronoun', 'Proper noun', 'Verb'}
-# split a string into tags {{a|b|c}}
-def tagify(s):
+partsOfSpeech = {'Adjective', 'Adverb', 'Ambiposition', 'Article', 'Circumposition',
+	'Classifier', 'Conjunction', 'Contraction', 'Counter', 'Determiner', 'Ideophone',
+	'Interjection', 'Noun', 'Numeral', 'Participle', 'Particle', 'Postposition',
+	'Preposition', 'Pronoun', 'Proper noun', 'Verb'}
+# split a string into labels {{a|b|c}}
+def labelify(s):
 	return s[2:-2].split('|')
+
+# eg: {{sometimes|that}}
+leadingLabels = {'sometimes', 'stereotypically', 'now', 'usually'}
+# eg: {{chiefly|UK|Australia}}
+listLabels = {'chiefly'}
+
+# formats labels properly
+def handleLabels(l):
+	newLabels = []
+	labels = [removeFormatting(lab) for lab in l.split('|')]
+
+	currentList = None
+	currentListTitle = None
+
+	i = 0
+	count = len(labels)
+
+	while i < count:
+		lab = labels[i]
+		if(lab in leadingLabels):
+			if(currentList):
+				newLabels.append(currentListTitle + ', '.join(currentList))
+				currentListTitle = None
+			if(i == count-1):
+				print('Leading label error @ line: ' + l)
+			newLabels.append(lab + ' ' + labels[i+1])
+			i+=2
+			continue
+
+		if(lab == '_'):
+			if(currentList):
+				newLabels.append(currentListTitle + ', '.join(currentList))
+				currentListTitle = None
+			if(i == count-1):
+				print('Combining label error (after) @ line: ' + l)
+
+			prev = None
+			if(len(newLabels) == 0):
+				print('Combining label error (before) @ line: ' + l)
+				prev = ''
+			else:
+				prev = newLabels.pop()
+			newLabels.append(prev + ' ' + labels[i+1])
+			i+=2
+			continue
+
+		if(lab in listLabels):
+			if(currentList):
+				newLabels.append(currentListTitle + ', '.join(currentList))
+			currentListTitle = lab + ': '
+			currentList = list()
+			i+=1
+			continue
+
+
+		if(currentListTitle):
+			currentList.append(lab)
+			i+=1
+			continue
+
+		newLabels.append(lab)
+		i+=1
+
+	if(currentList):
+		newLabels.append(currentListTitle + ', '.join(currentList))
+
+	return newLabels
+
+# remove bolded / linked words
+# should probably make this more efficient later
+stops = set(',.; -~/()|#')
+
+def removeFormatting(w):
+ 	w = w.replace('[[','').replace(']]','').replace('\'\'\'','').replace('\'\'','')
+	w2 = ''
+	# remove pairs apple|Apple by picking first
+	rem = False
+	for c in w:
+		if(rem):
+			if(c in stops):
+				w2 += c
+				rem = False
+			continue
+		if(c == '|' or c == '#'):
+			rem = True
+			continue
+		w2 += c
+	return w2
+
+
+# formats a definition properly
+def cleanDef(d):
+	match = defre2.match(d)
+	defi = removeFormatting(match.group('def'))
+	prelabels = match.group('prelabels')
+	postlabels = match.group('postlabels')
+
+	# deal with prelabel-specific definitions
+	if(prelabels):
+		prelabels = prelabels.split('|')
+		# first label - defines label type
+		f = prelabels[0]
+		if(f == 'alternative form of'):
+			return 'Alternate form of ' + prelabels[1]
+		if(f == 'alternative spelling of'):
+			return 'Alternate spelling of ' + prelabels[1]
+		if(f == 'misspelling of'):
+			return 'Misspelling of ' + prelabels[1]
+		if(f == 'initialism of'):
+			return 'Initialism of ' + prelabels[1]
+		if(f == 'present participle of'):
+			return 'Present participle of ' + prelabels[1]
+		if(f == 'en-comparative of'):
+			return 'Comparative of ' + prelabels[1]
+		if(f == 'inflection of'):
+			# TODO handle inflections properly
+			'''
+			return ['first','second','third'][d[3]] +
+		 		'-person ' +
+				{'s':'singular'}[d[4]] + ' ' +
+				{'indc':'indicative', 'subj':'subjunctive', 'impr':'imperative'}[d[6]] + ' ' +
+			'''
+			return 'Inflection of ' + prelabels[1]
+		if(f == 'senseid'):
+			# TODO deal with this
+			# senseid requires poselabel 'qualifier'
+			# senseid sometimes refers to Wikidata Q#### code, sometimes to word(s)
+			# return prelabels[2] + postlabels
+			return defi
+		if(f == 'en-past of' or f == 'en-simple past of'):
+			return 'Past form of ' + prelabels[1]
+		return d
+		# if(f == )
+	return defi
+
+
+
+
 
 class WiktionaryParser():
 	def __init__(self, inpath, outpath):
@@ -31,9 +174,13 @@ class WiktionaryParser():
 		self.__oneSect = len(self.__targetSections) == 1
 		# if info about plurals should be tracked
 		self.__trackPlurals = True
-		# if the parser is currently running
+		# if definitions should be tracked
+		self.__trackDefinitions = True
+		# if definition labels should be tracked
+		self.__trackDefLabels = True
+		# if parser is currently running
 		self.__running = False
-		# if the parser should track info about how much data it has parsed
+		# if parser should track info about how much data it has parsed
 		self.__trackSelf = True
 		# if parser should make a list of words and nothing else
 		self.__wordsOnly = False
@@ -88,6 +235,20 @@ class WiktionaryParser():
 		self.__trackPlurals = track
 		return True
 
+	def setTrackDefinitions(self, track):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__trackDefinitions = track
+		return True
+
+	def setTrackDefLabels(self, track):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__trackDefLabels = track
+		return True
+
 	def setWordsOnly(self, w):
 		if(self.__running):
 			print('Cannot change settings while running!')
@@ -127,11 +288,13 @@ class WiktionaryParser():
 		hasContent = False	# if current page has any content that should be saved
 		currentWord = None	# the actual word as a string
 
-		# HEIRARCHY: word/page > language > section > contents
+		# HEIRARCHY: word/page (eg: cat) > language (eg: English) > section (eg: Noun) > contents (eg: definitions)
 		currentLang = None	# dict of a language's sections
 		currentLangName = None	# name of the current language
 		currentSection = None	# dict of a section's contents
 		currentSectionName = None	# name of the current section
+		inPOS = None	# currently in a Part of Speech section
+		currentDefs = None
 
 		# bool - rules have been found in the current section
 		foundPlurals = False
@@ -186,6 +349,8 @@ class WiktionaryParser():
 						currentName = None
 						currentSection = None
 						currentSectionName = None
+						# inPOS = None
+						# currentDefs = None
 						foundPlurals = False
 						skipPage = False
 						skipLang = False
@@ -200,8 +365,8 @@ class WiktionaryParser():
 							print('Reached end of file.')
 							break
 
-						# the next next line contains the word inside a <title> tag
-						# extract the word from the <title> tags
+						# the next next line contains the word inside a <title>
+						# extract the word from the <title> s
 						currentWord = inf.readline()[11:-9]
 
 						# skip meta pages
@@ -270,7 +435,7 @@ class WiktionaryParser():
 					continue
 
 				# check if this is a section title
-				match = title34PT.match(line)
+				match = title3pPT.match(line)
 				if(match):
 					# if it is a section title, extract the section type
 					section = match.group(1)
@@ -278,9 +443,12 @@ class WiktionaryParser():
 					if((not self.__targetSections) or (section in self.__targetSections)):
 						currentSectionName = section
 						if(self.__wordsOnly):
+							# if this word has the desired section and we're only-
+							# looking for words, then this page is done
 							hasContent = True
 							skipPage = True
 							continue
+
 						if(self.__oneSect):
 							currentSect = currentLang
 						else:
@@ -288,6 +456,13 @@ class WiktionaryParser():
 							currentSection = dict()
 							# add the section to the language dict
 							currentLang[section] = currentSection
+
+						if(self.__trackDefinitions):
+							inPOS = section in partsOfSpeech
+							# just assume that any part of speech sections have definitions in them
+							if(inPOS):
+								currentDefs = list()
+								currentSection['defs'] = currentDefs
 						# flag the page as having desired content
 						hasContent = True
 					else:
@@ -304,7 +479,26 @@ class WiktionaryParser():
 				if(self.__wordsOnly):
 					continue
 
-				# if currently in a specific section...
+				# grab definitions
+				if(self.__trackDefinitions and inPOS):
+					# regex match for definition format {{lb|en|...}} def1
+					match = defre1.match(line)
+					if(match):
+						cleanedDef = cleanDef(match.group('def'))
+						labels = match.group('labels')
+						outLabels = None
+						if(labels):
+							outLabels = handleLabels(labels)
+
+						if(self.__trackDefLabels):
+							defLabelCombo = dict()
+							if(outLabels):
+								defLabelCombo['labels'] = outLabels
+							defLabelCombo['def'] = cleanedDef
+							currentDefs.append(defLabelCombo)
+						else:
+							currentDefs.append(cleanedDef)
+
 				if(currentSectionName == 'Noun'):
 					# check for plural rules if necessary
 					# currently locked to English only... other languages have different plural rules.
@@ -312,9 +506,9 @@ class WiktionaryParser():
 						# try to match the plural rules line
 						match = plrre.match(line)
 						if(match):
-							# if plural rules line is found, extract the tags
-							plurtags = tagify(match.group(0))
-							numPlurTags = len(plurtags)
+							# if plural rules line is found, extract the labels
+							plurlabels = labelify(match.group(0))
+							numPlurlabels = len(plurlabels)
 
 							# converts plural notation to actual plural words
 							solvedPlurs = []
@@ -323,15 +517,15 @@ class WiktionaryParser():
 							# 0: no, 1: yes, 2: maybe
 							countable = 0
 							 # default rule en-noun - add an s
-							if(numPlurTags == 1):
+							if(numPlurlabels == 1):
 								countable = 1
 								solvedPlurs.append(currentWord + 's')
 							else:
-								# remove the ISO-noun tag
-								plurtags.pop(0)
-								numPlurTags -= 1
-								for i in range(numPlurTags):
-									rule = plurtags[i]
+								# remove the ISO-noun label
+								plurlabels.pop(0)
+								numPlurlabels -= 1
+								for i in range(numPlurlabels):
+									rule = plurlabels[i]
 									if(rule == 's'):
 										solvedPlurs.append(currentWord + 's')
 										# do not change if countable = sometimes
@@ -344,8 +538,8 @@ class WiktionaryParser():
 											countable = 1
 									elif(rule == '~'): # sometimes countable
 										countable = 2
-										# if ~ is the only tag, assume plural is +s
-										if(numPlurTags == 1):
+										# if ~ is the only label, assume plural is +s
+										if(numPlurlabels == 1):
 											solvedPlurs.append(currentWord + 's')
 									elif(rule == '-'): # non-countable or rarely countable
 										if(countable == 1):
@@ -383,16 +577,14 @@ class WiktionaryParser():
 		# end stats
 		print('Finished with ' + str(len(pages)) + ' words.')
 		if(self.__trackSelf):
-			print('Parsed ' + str(linesRead) + ' pages.')
+			print('Parsed ' + str(linesRead) + ' lines.')
 			print('Turned ' + str(bytesRead) + ' bytes into ' + str(len(out.decode('utf8'))) + '.')
 
 		return out
 
-#TODO maybe check the API to update existing words in the JSON
-
 def example():
 	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/parsed.json')
-	parser.setMaxPageCount(1000)
+	parser.setMaxPageCount(100)
 	parser.parse()
 
 example()
