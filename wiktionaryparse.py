@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import re
 import json
+import collections as cl
 
 # matches to Language titles
 title2PT = re.compile('==([^=]+)==')
@@ -112,7 +113,7 @@ def removeFormatting(w):
 	return w2
 
 
-# formats a definition properly
+# formats a definition properly - returns (formatted def, tags to add)
 def cleanDef(d):
 	match = defre2.match(d)
 	defi = removeFormatting(match.group('def'))
@@ -122,20 +123,28 @@ def cleanDef(d):
 	# deal with prelabel-specific definitions
 	if(prelabels):
 		prelabels = prelabels.split('|')
+		# remove formatting on prelabels
+		for i in range(1,len(prelabels)):
+			prelabels[i] = removeFormatting(prelabels[i])
+
 		# first label - defines label type
 		f = prelabels[0]
 		if(f == 'alternative form of'):
-			return 'Alternate form of ' + prelabels[1]
+			return ('Alternate form of ' + prelabels[1], 'alt form')
 		if(f == 'alternative spelling of'):
-			return 'Alternate spelling of ' + prelabels[1]
+			return ('Alternate spelling of ' + prelabels[1],'alt spelling')
 		if(f == 'misspelling of'):
-			return 'Misspelling of ' + prelabels[1]
+			return ('Misspelling of ' + prelabels[1],'misspelling')
 		if(f == 'initialism of'):
-			return 'Initialism of ' + prelabels[1]
+			return ('Initialism of ' + prelabels[1],'initialism')
 		if(f == 'present participle of'):
-			return 'Present participle of ' + prelabels[1]
+			return ('Present participle of ' + prelabels[1], 'present participle')
 		if(f == 'en-comparative of'):
-			return 'Comparative of ' + prelabels[1]
+			return ('Comparative of ' + prelabels[1], 'comparative')
+		if(f == 'abbreviation of'):
+			return ('Abbreviation of ' + prelabels[1], 'abbreviation')
+		if(f == 'non-gloss definition'):
+			return (prelabels[1] + ' ' + defi, 'non-gloss')
 		if(f == 'inflection of'):
 			# TODO handle inflections properly
 			'''
@@ -144,18 +153,18 @@ def cleanDef(d):
 				{'s':'singular'}[d[4]] + ' ' +
 				{'indc':'indicative', 'subj':'subjunctive', 'impr':'imperative'}[d[6]] + ' ' +
 			'''
-			return 'Inflection of ' + prelabels[1]
+			return ('Inflection of ' + prelabels[1],'inflection')
 		if(f == 'senseid'):
 			# TODO deal with this
 			# senseid requires poselabel 'qualifier'
 			# senseid sometimes refers to Wikidata Q#### code, sometimes to word(s)
 			# return prelabels[2] + postlabels
-			return defi
+			return (defi,)
 		if(f == 'en-past of' or f == 'en-simple past of'):
-			return 'Past form of ' + prelabels[1]
-		return d
+			return ('Past form of ' + prelabels[1],)
+		return (d,)
 		# if(f == )
-	return defi
+	return (defi,)
 
 
 
@@ -184,6 +193,20 @@ class WiktionaryParser():
 		self.__trackSelf = True
 		# if parser should make a list of words and nothing else
 		self.__wordsOnly = False
+		self.__skipLines = 0
+
+	def getSkipLines(self):
+		return 0
+
+	def setSkipLines(self, num):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__skipLines = num
+		return True
+
+	def getInPath(self):
+		return self.__inpath
 
 	def setInPath(self, path):
 		if(self.__running):
@@ -199,12 +222,21 @@ class WiktionaryParser():
 		self.__outpath = path
 		return True
 
+	def getOutPath(self):
+		return self.__outpath
+
+	def getMaxPageCount(self):
+		return self.__maxPageCount
+
 	def setMaxPageCount(self, count):
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
 		self.__maxPageCount = count
 		return True
+
+	def getTargetLanguages(self):
+		return set(self.__targetLangs)
 
 	def setTargetLanguages(self, *langs):
 		if(self.__running):
@@ -214,8 +246,8 @@ class WiktionaryParser():
 		self.__oneLang = len(langs) == 1
 		return True
 
-	def getTargetLanguages(self):
-		return set(self.__targetLangs)
+	def getTargetSections(self):
+		return set(self.__targetSections)
 
 	def setTargetSections(self, *sects):
 		if(self.__running):
@@ -225,8 +257,8 @@ class WiktionaryParser():
 		self.__oneSect = len(sects) == 1
 		return True
 
-	def getTargetLanguages(self):
-		return set(self.__targetLangs)
+	def isTrackingPlurals(self):
+		return self.__trackPlurals
 
 	def setTrackPlurals(self, track):
 		if(self.__running):
@@ -235,6 +267,9 @@ class WiktionaryParser():
 		self.__trackPlurals = track
 		return True
 
+	def isTrackingDefinition(self):
+		return self.__trackDefinitions
+
 	def setTrackDefinitions(self, track):
 		if(self.__running):
 			print('Cannot change settings while running!')
@@ -242,12 +277,18 @@ class WiktionaryParser():
 		self.__trackDefinitions = track
 		return True
 
+	def isTrackingDefLabels(self):
+		return self.__trackDefLabels
+
 	def setTrackDefLabels(self, track):
 		if(self.__running):
 			print('Cannot change settings while running!')
 			return None
 		self.__trackDefLabels = track
 		return True
+
+	def isGettingWordsOnly(self):
+		return self.__wordsOnly
 
 	def setWordsOnly(self, w):
 		if(self.__running):
@@ -280,10 +321,16 @@ class WiktionaryParser():
 			print('Failed to open input file. Quitting...')
 			return None
 
+		for i in range(self.__skipLines):
+			inf.readline()
+
+		if(self.__skipLines):
+			print('Skipped ' + str(self.__skipLines) + ' lines')
+
 		pageCount = 0	# number of saved pages
 		# holds all pages - one page per word
-		pages = '' if self.__wordsOnly else dict()
-		page = dict()	# holds the current page being parsed/created
+		pages = '' if self.__wordsOnly else cl.OrderedDict()
+		page = cl.OrderedDict()	# holds the current page being parsed/created
 
 		hasContent = False	# if current page has any content that should be saved
 		currentWord = None	# the actual word as a string
@@ -376,7 +423,7 @@ class WiktionaryParser():
 
 						# set up the next word's page
 						if(not self.__wordsOnly):
-							page = dict()
+							page = cl.OrderedDict()
 
 						continue
 
@@ -421,7 +468,7 @@ class WiktionaryParser():
 								currentLang = page
 							else: # otherwise, if there are multiple langs:
 								# create a dict for this language's sections
-								currentLang = dict()
+								currentLang = cl.OrderedDict()
 								# add the language section to the word's page
 								page[lang] = currentLang
 						else:
@@ -450,10 +497,10 @@ class WiktionaryParser():
 							continue
 
 						if(self.__oneSect):
-							currentSect = currentLang
+							currentSection = currentLang
 						else:
 							# create a dict for this section's contents
-							currentSection = dict()
+							currentSection = cl.OrderedDict()
 							# add the section to the language dict
 							currentLang[section] = currentSection
 
@@ -461,8 +508,11 @@ class WiktionaryParser():
 							inPOS = section in partsOfSpeech
 							# just assume that any part of speech sections have definitions in them
 							if(inPOS):
-								currentDefs = list()
-								currentSection['defs'] = currentDefs
+								if('defs' in currentSection):
+									currentDefs = currentSection['defs']
+								else:
+									currentDefs = list()
+									currentSection['defs'] = currentDefs
 						# flag the page as having desired content
 						hasContent = True
 					else:
@@ -480,18 +530,22 @@ class WiktionaryParser():
 					continue
 
 				# grab definitions
-				if(self.__trackDefinitions and inPOS):
+				if(currentSectionName and self.__trackDefinitions and inPOS):
 					# regex match for definition format {{lb|en|...}} def1
 					match = defre1.match(line)
 					if(match):
-						cleanedDef = cleanDef(match.group('def'))
+						cleanDefResults = cleanDef(match.group('def'))
+						cleanedDef = cleanDefResults[0]
+
+						# cleaned labels being sent to output
+						outLabels = list(cleanDefResults[1:])
+
 						labels = match.group('labels')
-						outLabels = None
 						if(labels):
-							outLabels = handleLabels(labels)
+							outLabels.extend(handleLabels(labels))
 
 						if(self.__trackDefLabels):
-							defLabelCombo = dict()
+							defLabelCombo = cl.OrderedDict()
 							if(outLabels):
 								defLabelCombo['labels'] = outLabels
 							defLabelCombo['def'] = cleanedDef
@@ -583,8 +637,10 @@ class WiktionaryParser():
 		return out
 
 def example():
-	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/wordsonly.txt')
-	parser.setMaxPageCount(10000)
+	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/parsed.json')
+	parser.setMaxPageCount(17)
+	parser.setTargetSections('Noun')
+	parser.setWordsOnly(False)
 	parser.parse()
 
 example()
