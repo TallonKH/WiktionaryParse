@@ -78,7 +78,7 @@ See also the list of [contributors](https://github.com/your/project/contributors
 
 ## License
 
-This project is licensed under the MIT License - see [here](https://opensource.org/licenses/MIT) for details
+This project is licensed under the MIT License - see [here](https://opensource.org/licenses/MIT) for details. 
 WiktionaryParse does not directly contain any copyrighted property; however, its one and only function is to grab info from wiktionary.org. Please see [here](https://en.wiktionary.org/wiki/Wiktionary:Copyrights) for copyright information on any files created by WiktionaryParse.
 
 ## Acknowledgments
