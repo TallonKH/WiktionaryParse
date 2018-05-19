@@ -7,14 +7,18 @@ import collections as cl
 # matches to Language titles
 title2PT = re.compile('==([^=]+)==')
 # matches to section/subsection titles
-title3pPT = re.compile('={3,}([^=]+)={3,}?')
+title3pPT = re.compile('={3,}([^=]+)(={3,})')
 # matches plural rule labels for any language - groups the inner contents
-plrre = re.compile('{{([a-z]{2,3}-(?:noun|verb).*)}}')
+plrre = re.compile('{{([a-z]{2,3}-(?:noun|verb).*?)}}')
 # matches definitions - extracts first set of labels and definition
-defre1 = re.compile('#+? (?:{{lb\|[a-z]{2,3}\|(?P<labels>.+?)}} ?)?(?P<def>.+)')
+defre1 = re.compile('#+? (?:{{lbl?\|[a-z]{2,3}\|(?P<labels>.+?)}} ?)?(?P<def>.+)')
 # matches definitions - extracts pre/post labels and definition
 defre2 = re.compile('^(?:{{(?P<prelabels>.+?)}} ?)?(?P<def>[^{]*)(?:{{(?P<postlabels>.+)}})?')
-# levels of countability corresponding with indeces 0,1,2
+
+# sections that should be represented by a list instead of a dict
+listSects = ['Derived terms']
+
+# levels of countability corresponding with indices 0,1,2
 countableTypes = ['No', 'Yes', 'Sometimes', 'Unknown']
 partsOfSpeech = {'Adjective', 'Adverb', 'Ambiposition', 'Article', 'Circumposition',
 	'Classifier', 'Conjunction', 'Contraction', 'Counter', 'Determiner', 'Ideophone',
@@ -93,14 +97,40 @@ def handleLabels(l):
 
 # remove bolded / linked words
 # should probably make this more efficient later
-stops = set(',.; -~/()|#')
+stops = set(',.;-~/()')
 
 def removeFormatting(w):
  	w = w.replace('[[','').replace(']]','').replace('\'\'\'','').replace('\'\'','')
+	w = w.replace('&lt;', '<').replace('&gt;', '>')
 	w2 = ''
-	# remove pairs apple|Apple by picking first
+
+	# remove </text> from end
+	if(w.endswith('</text>')):
+		w = w[:-7]
+
+	# remove pairs (apple|Apple) or lang (apple#Latin)
 	rem = False
-	for c in w:
+	depth = 0
+	pendingTagClose = False
+	for i in range(len(w)):
+		c = w[i]
+		if(pendingTagClose):
+			if(c == '>'):
+				pendingTagClose = False
+				continue
+
+		if(c == '/' and w[i-1] == '<'):
+			depth-=2
+			if(depth == 0):
+				pendingTagClose = True
+				continue
+		if(c == '<'):
+			depth+=1
+			continue
+
+		if(depth > 0):
+			continue
+
 		if(rem):
 			if(c in stops):
 				w2 += c
@@ -112,6 +142,8 @@ def removeFormatting(w):
 		w2 += c
 	return w2
 
+def cleanInnerDef(d):
+	pass
 
 # formats a definition properly - returns (formatted def, tags to add)
 def cleanDef(d):
@@ -119,33 +151,83 @@ def cleanDef(d):
 	defi = removeFormatting(match.group('def'))
 	prelabels = match.group('prelabels')
 	postlabels = match.group('postlabels')
-
+	tags = []
 	# deal with prelabel-specific definitions
 	if(prelabels):
 		prelabels = prelabels.split('|')
 		# remove formatting on prelabels
-		for i in range(1,len(prelabels)):
+		numPreLabels = len(prelabels)
+		for i in range(1,numPreLabels):
 			prelabels[i] = removeFormatting(prelabels[i])
 
 		# first label - defines label type
 		f = prelabels[0]
 		if(f == 'alternative form of'):
-			return ('Alternate form of ' + prelabels[1], 'alt form')
-		if(f == 'alternative spelling of'):
-			return ('Alternate spelling of ' + prelabels[1],'alt spelling')
-		if(f == 'misspelling of'):
-			return ('Misspelling of ' + prelabels[1],'misspelling')
-		if(f == 'initialism of'):
-			return ('Initialism of ' + prelabels[1],'initialism')
-		if(f == 'present participle of'):
-			return ('Present participle of ' + prelabels[1], 'present participle')
-		if(f == 'en-comparative of'):
-			return ('Comparative of ' + prelabels[1], 'comparative')
-		if(f == 'abbreviation of'):
-			return ('Abbreviation of ' + prelabels[1], 'abbreviation')
-		if(f == 'non-gloss definition'):
-			return (prelabels[1] + ' ' + defi, 'non-gloss')
-		if(f == 'inflection of'):
+			defi = 'Alternate form of ' + prelabels[1]
+			tags.append('alt form')
+		if(f == 'eye dialect of'):
+			defi = 'Eye dialiect of ' + prelabels[1]
+			tags.append('dialect')
+		elif(f == 'alternative spelling of'):
+			defi = 'Alternate spelling of ' + prelabels[1]
+			tags.append('alt spelling')
+		elif(f == 'misspelling of'):
+			defi = 'Misspelling of ' + prelabels[1]
+			tags.append('misspelling')
+		elif(f == 'initialism of'):
+			defi = 'Initialism of ' + prelabels[1]
+			tags.append('initialism')
+		elif(f == 'plural of'):
+			defi = 'Plural of ' + prelabels[1]
+			tags.append('plural')
+		elif(f == 'present participle of'):
+			defi = 'Present participle of ' + prelabels[1]
+			tags.append('present participle')
+		elif(f == 'en-comparative of'):
+		 	defi = 'Comparative of ' + prelabels[1]
+			tags.append('comparative')
+		elif(f == 'abbreviation of'):
+			defi = 'Abbreviation of ' + prelabels[1]
+			tags.append('abbreviation')
+		elif(f == 'en-third-person singular of'):
+			defi = 'Third-person singular of ' + prelabels[1]
+			tags.append('third-person')
+			tags.append('singular')
+		elif(f == 'archaic spelling of'):
+			defi = 'Archaic spelling of ' + prelabels[1]
+			tags.append('archaic')
+			tags.append('alt spelling')
+		elif(f == 'non-gloss definition' or f == 'n-g'):
+			defi = prelabels[1] + ' ' + defi
+			tags.append('non-gloss')
+		elif(f == 'obsolete form of'):
+			defi = 'Obselete form of ' + prelabels[1]
+			tags.append('obselete')
+			tags.append('alt form')
+		elif(f == 'taxlink'):
+			defi = 'Of the ' + prelabels[2] + ' ' + prelabels[1]
+			tags.append(prelabels[2])
+		elif(f == 'surname'):
+			defi = 'surname'
+			tags.append('surname')
+		elif(f == 'given name'):
+			noor = True
+			for lb in prelabels[2:]:
+				if(lb.startswith('or=')):
+					defi = 'Given name (male or female)'
+					tags.append('male')
+					tags.append('female')
+					noor = False
+					continue
+			if(noor):
+				defi = 'Given name (' + prelabels[1] + ')'
+				tags.append(prelabels[1])
+			tags.append('given name')
+		elif(f == 'historical given name'):
+			defi = 'Historic given name, used by ' + prelabels[2]
+			tags.append('given name')
+			tags.append('historical')
+		elif(f == 'inflection of'):
 			# TODO handle inflections properly
 			'''
 			return ['first','second','third'][d[3]] +
@@ -153,22 +235,36 @@ def cleanDef(d):
 				{'s':'singular'}[d[4]] + ' ' +
 				{'indc':'indicative', 'subj':'subjunctive', 'impr':'imperative'}[d[6]] + ' ' +
 			'''
-			return ('Inflection of ' + prelabels[1],'inflection')
-		if(f == 'senseid'):
+			defi = 'Inflection of ' + prelabels[1]
+			tags.append('inflection')
+		elif(f == 'senseid' or 'rfv-sense'):
+			pass
 			# TODO deal with this
 			# senseid requires poselabel 'qualifier'
 			# senseid sometimes refers to Wikidata Q#### code, sometimes to word(s)
 			# return prelabels[2] + postlabels
-			return (defi,)
-		if(f == 'en-past of' or f == 'en-simple past of'):
-			return ('Past form of ' + prelabels[1],)
-		return (d,)
+		elif(f == 'en-past of' or f == 'en-simple past of'):
+			defi = 'Past form of ' + prelabels[1]
+			tags.append('past')
+		else:
+			tags.append('UNKNOWN TAG')
+			return (d,[])
 		# if(f == )
-	return (defi,)
 
+	if(postlabels):
+		postlabels = postlabels.split('|')
+		# remove formatting on prelabels
+		for i in range(1,len(postlabels)):
+			postlabels[i] = removeFormatting(postlabels[i])
 
+		f = postlabels[0]
 
+		if(f == 'm'):
+			defi += '\'' + postlabels[2] + '\''
 
+	return (defi,tags)
+
+#TODO remove inner tags {{m|en|...}} https://en.wiktionary.org/wiki/Template:mention
 
 class WiktionaryParser():
 	def __init__(self, inpath, outpath):
@@ -193,7 +289,10 @@ class WiktionaryParser():
 		self.__trackSelf = True
 		# if parser should make a list of words and nothing else
 		self.__wordsOnly = False
+		# number of lines to skip
 		self.__skipLines = 0
+		# if parser should track derived terms
+		self.__trackDerived = True
 
 	def getSkipLines(self):
 		return 0
@@ -246,6 +345,14 @@ class WiktionaryParser():
 		self.__oneLang = len(langs) == 1
 		return True
 
+	def addTargetLanguages(self, *langs):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__targetLangs.update(langs)
+		self.__oneLang = len(self.__targetLangs) == 1
+		return True
+
 	def getTargetSections(self):
 		return set(self.__targetSections)
 
@@ -255,6 +362,14 @@ class WiktionaryParser():
 			return None
 		self.__targetSections = set(sects)
 		self.__oneSect = len(sects) == 1
+		return True
+
+	def addTargetSections(self, *sects):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__targetSections.update(sects)
+		self.__oneSect = len(self.__targetSections) == 1
 		return True
 
 	def isTrackingPlurals(self):
@@ -267,8 +382,21 @@ class WiktionaryParser():
 		self.__trackPlurals = track
 		return True
 
+	def isTrackingDerived(self):
+		return self.__trackDerived
+
+	def setTrackDerived(self, track):
+		if(self.__running):
+			print('Cannot change settings while running!')
+			return None
+		self.__trackDerived = track
+		return True
+
 	def isTrackingDefinition(self):
 		return self.__trackDefinitions
+
+	def isTrackingDefinition(self):
+		return self.__trackDerived
 
 	def setTrackDefinitions(self, track):
 		if(self.__running):
@@ -340,6 +468,8 @@ class WiktionaryParser():
 		currentLangName = None	# name of the current language
 		currentSection = None	# dict of a section's contents
 		currentSectionName = None	# name of the current section
+		currentPOS = None # section, if part of speech
+		currentPOSName = None
 		inPOS = None	# currently in a Part of Speech section
 		currentDefs = None
 
@@ -443,6 +573,9 @@ class WiktionaryParser():
 				if(line == '----'):
 					currentLang = None
 					currentLangName = None
+					currentSectDepth = 0
+					currentPOS = None
+					currentPOSName = None
 					continue
 
 				# skip the whole language
@@ -500,15 +633,17 @@ class WiktionaryParser():
 							currentSection = currentLang
 						else:
 							# create a dict for this section's contents
-							currentSection = cl.OrderedDict()
+							currentSection = currentLang.get(section, list() if currentSectionName in listSects else cl.OrderedDict())
 							# add the section to the language dict
 							currentLang[section] = currentSection
 
+						inPOS = section in partsOfSpeech
+						currentPOS = section
+						currentPOSName = currentSection
 						if(self.__trackDefinitions):
-							inPOS = section in partsOfSpeech
 							# just assume that any part of speech sections have definitions in them
 							if(inPOS):
-								if('defs' in currentSection):
+								if('defs' in currentSection.keys()):
 									currentDefs = currentSection['defs']
 								else:
 									currentDefs = list()
@@ -531,14 +666,14 @@ class WiktionaryParser():
 
 				# grab definitions
 				if(currentSectionName and self.__trackDefinitions and inPOS):
-					# regex match for definition format {{lb|en|...}} def1
+					# regex match for definition format {{lb/lbl|en|...}} def1 or
 					match = defre1.match(line)
 					if(match):
 						cleanDefResults = cleanDef(match.group('def'))
 						cleanedDef = cleanDefResults[0]
 
 						# cleaned labels being sent to output
-						outLabels = list(cleanDefResults[1:])
+						outLabels = cleanDefResults[1]
 
 						labels = match.group('labels')
 						if(labels):
@@ -610,16 +745,24 @@ class WiktionaryParser():
 
 							# solvedPlurs will be falsy if a - causes it to be None
 							if(solvedPlurs):
+								solvedPlurs = [removeFormatting(plur) for plur in solvedPlurs]
 								currentSection['plural'] = solvedPlurs
 							continue
 				elif(currentSectionName == 'Verb'):
 					pass
 				elif(currentSectionName == 'Adjective'):
 					pass
+				elif(currentSectionName == 'Derived terms'):
+					if(self.__trackDerived):
+						if(line[0] == '|'):
+							currentSection.append(removeFormatting(line[1:]))
+						elif(line[0] == '*'):
+							# TODO
+							currentSection.append(removeFormatting(line[1:]))
 
 		inf.close()
 
-		out = pages[:-1] if self.__wordsOnly else json.dumps(pages)
+		out = pages[:-1] if self.__wordsOnly else json.dumps(pages, separators=(',', ':'))
 
 		try:
 			outf = open(self.__outpath, 'w')
@@ -636,11 +779,38 @@ class WiktionaryParser():
 
 		return out
 
+def formatTerms(t):
+	if(t[0] == '{{'):
+		labels = t[2:-2].split()
+	else:
+		return t
+
+
 def example():
-	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', '/Users/default/Documents/Wikiparse/parsed.json')
-	parser.setMaxPageCount(17)
-	parser.setTargetSections('Noun')
-	parser.setWordsOnly(False)
+	# Everything : Nouns with plurals only : Adjective Words Only	:	Words only
+	exampleTemplate = 1
+	outp = '/Users/default/Documents/Wikiparse/'
+	parser = WiktionaryParser('/Users/default/Documents/Wikiparse/wiktionary.xml', None)
+	if(exampleTemplate == 0):
+		parser.setOutPath(outp + 'parsed.json')
+		parser.setMaxPageCount(100)
+	elif(exampleTemplate == 1):
+		parser.setOutPath(outp + 'nounplurs.json')
+		parser.setMaxPageCount(1000000)
+		parser.setTargetSections('Noun')
+		parser.setTrackDefinitions(False)
+		parser.setTrackDerived(False)
+	elif(exampleTemplate == 1):
+		parser.setOutPath(outp + 'adjectives.json')
+		parser.setMaxPageCount(1000000)
+		parser.setTargetSections('Noun')
+		parser.setTrackDefinitions(False)
+		parser.setTrackDerived(False)
+	elif(exampleTemplate == 2):
+		parser.setOutPath(outp + 'wordsonly.txt')
+		parser.setMaxPageCount(5000)
+		parser.setWordsOnly(True)
 	parser.parse()
+	# parser.setTargetSections('Noun')
 
 example()
